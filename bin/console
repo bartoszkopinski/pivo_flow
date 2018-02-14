@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+
+require "irb"
+require "irb/completion"
+
+$LOAD_PATH.unshift File.join(File.dirname(__FILE__), '..', 'lib')
+
+require "pivo_flow"
+
+@pf = PivoFlow::Pivotal.new
+@pf.run
+
+IRB.start
