@@ -98,7 +98,7 @@ module PivoFlow
     end
 
     def no_story_found_message
-      "No story found in #{current_story_id_file_path}"
+      "Story not started!"
     end
 
     def no_method_error

@@ -244,14 +244,7 @@ module PivoFlow
         return
       end
 
-      ticket_name = story
-        .name
-        .tr('^A-Za-z0-9 ', '')
-        .tr(' ', '-')
-        .downcase[0...MAX_BRANCH_NAME_LENGTH]
-
-      branch_name = [ticket_name, story.id].join("-")
-
+      branch_name = "#{story.story_type}/pt-##{story.id}"
       git_create_branch(branch_name)
       save_story_id_to_file(story_id)
     end
@@ -266,15 +259,6 @@ module PivoFlow
 
     def deliver_story story_id
       update_story(story_id, :delivered)
-    end
-
-    def remove_story_id_file
-      FileUtils.remove_file(current_story_id_file_path)
-    end
-
-    def save_story_id_to_file story_id
-      FileUtils.mkdir_p(story_id_tmp_path)
-      File.open(current_story_id_file_path, 'w') { |f| f.write(story_id) }
     end
 
     def show_stories count=9
@@ -293,7 +277,7 @@ module PivoFlow
     end
 
     def git_create_branch(name)
-      system("git checkout -b #{name}")
+      system("git checkout #{name} 2>/dev/null || git checkout -b #{name}")
     end
   end
 end
