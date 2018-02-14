@@ -15,7 +15,7 @@ Gem::Specification.new do |gem|
   gem.require_paths = ["lib"]
   gem.version       = PivoFlow::VERSION
 
-  gem.add_runtime_dependency "pivotal-tracker"
+  gem.add_runtime_dependency "tracker_api"
   gem.add_runtime_dependency "grit"
   gem.add_runtime_dependency "highline"
   gem.add_runtime_dependency "colorize"

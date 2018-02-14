@@ -3,7 +3,7 @@ require 'grit'
 require 'optparse'
 require 'highline'
 require 'fileutils'
-require 'pivotal-tracker'
+require 'tracker_api'
 
 require 'pivo_flow/state'
 require 'pivo_flow/core_extensions'

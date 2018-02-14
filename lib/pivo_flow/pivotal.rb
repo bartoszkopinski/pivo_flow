@@ -4,23 +4,30 @@ module PivoFlow
     include PivoFlow::State
 
     def run
-      PivotalTracker::Client.token = @options["api-token"]
-      PivotalTracker::Client.use_ssl = true
+      logger = Logger.new(STDOUT)
+      logger.level = Logger::INFO
+
+      @client = TrackerApi::Client.new(
+        token: @options["api-token"],
+        logger: logger,
+        auto_paginate: false,
+      )
     end
 
-    def ensure_project(&block)
-      begin
-        @options[:project] ||= PivotalTracker::Project.find(@options["project-id"])
-        block.call
-      rescue Exception => e
-        message = "Pivotal Tracker: #{e.message}\n" +
-        "[TIPS] It means that your configuration is wrong. You can reset your settings by running:\n\tpf reconfig"
-        raise PivoFlow::Errors::UnsuccessfulPivotalConnection, message
-      end
+    def project
+      @options[:project] ||= @client.project(@options["project-id"])
+    rescue Exception => e
+      message = "Pivotal Tracker: #{e.message}\n" +
+      "[TIPS] It means that your configuration is wrong. You can reset your settings by running:\n\tpf reconfig"
+      raise PivoFlow::Errors::UnsuccessfulPivotalConnection, message
+    end
+
+    def me
+      @me ||= @client.me
     end
 
     def user_stories
-      project_stories.select{ |story| story.owned_by == user_name }
+      project_stories.select{ |story| users_story?(story) }
     end
 
     def project_stories
@@ -28,15 +35,15 @@ module PivoFlow
     end
 
     def other_users_stories
-      project_stories.select{ |story| story.owned_by != user_name }
+      project_stories.select{ |story| !users_story?(story) }
     end
 
     def unasigned_stories
-      project_stories.select{ |story| story.owned_by == nil }
+      project_stories.select{ |story| story.owner_ids.empty? }
     end
 
     def finished_stories
-      fetch_stories(10, "finished").select{ |story| story.owned_by == user_name }
+      fetch_stories(10, "owner:#{me.initials} state:finished")
     end
 
     def current_story force = false
@@ -96,7 +103,7 @@ module PivoFlow
 
     def find_story story_id
       story = project_stories.find { |p| p.id == story_id.to_i }
-      story.nil? ? @options[:project].stories.find(story_id) : story
+      story.nil? ? project.story(story_id) : story
     end
 
     def story_notes story, exclude_commits=true
@@ -130,7 +137,7 @@ module PivoFlow
     end
 
     def users_story?(story)
-      story.owned_by == user_name
+      story.owner_ids.include?(me.id)
     end
 
     def story_color story
@@ -214,7 +221,10 @@ module PivoFlow
         return
       end
       state = :accepted if story.story_type == "chore" && state == :finished
-      if story.update(owned_by: user_name, current_state: state).errors.count.zero?
+      story.owner_ids |= [me.id]
+      story.current_state = state
+
+      if story.save
         puts "Story updated in Pivotal Tracker"
         true
       else
@@ -272,11 +282,14 @@ module PivoFlow
       list_stories_to_output stories.first(count)
     end
 
-    def fetch_stories(count = 100, state = "unstarted,started,unscheduled,rejected", story_type = "feature,chore,bug")
-      ensure_project do
-        conditions = { current_state: state, limit: count, story_type: story_type }
-        @options[:stories] = @options[:project].stories.all(conditions)
+    def fetch_stories(count = 100, filter = nil)
+      conditions = { limit: count }
+
+      if filter
+        conditions[:filter] = filter
       end
+
+      project.stories(conditions)
     end
 
     def git_create_branch(name)
