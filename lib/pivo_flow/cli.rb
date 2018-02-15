@@ -27,29 +27,43 @@ module PivoFlow
       pivotal_object.show_stories
     end
 
-    def set story_id=nil
+    def set story_id = nil
       unless story_id
         puts "Ok, but which story?"
         return 1
       end
-      pivotal_object.save_story_id_to_file story_id
+
+      story_id = story_id.to_s.delete("#")
+      pivotal_object.save_story_id_to_file(story_id)
       puts "Story ##{story_id} set as current"
     end
 
-    def start story_id=nil
+    def start story_id = nil
+      story_id ||= current_story_id
+
       unless story_id
-        puts "Ok, but which story?"
-        return 1
+        h = HighLine.new
+        story_id = h.ask("Story ID:\t") do |q|
+          q.responses[:ask_on_error] = :question
+          q.responses[:not_valid] = "It can't be empty, sorry"
+          q.validate = ->(id) { !id.empty? }
+        end
       end
+
+      story_id = story_id.to_s.delete("#")
       pivotal_object.pick_up_story(story_id)
     end
 
-    def finish story_id=nil
-      unless current_story_id
+    def finish story_id = nil
+      story_id ||= current_story_id
+
+      unless story_id
         puts no_story_found_message
         return 1
       end
-      pivotal_object.finish_story(current_story_id)
+
+      story_id = story_id.to_s.delete("#")
+      pivotal_object.finish_story(story_id)
     end
 
     def deliver
@@ -160,17 +174,12 @@ module PivoFlow
       when "clear", "current", "deliver", "info", "reconfig", "stories", "branch"
         self.send(args[0].to_sym)
       when nil
-        no_method_error
-        puts opt_parser
-        return 1
+        stories
       else
         invalid_method_error
         return 1
       end
       return 0
-
     end
-
   end
-
 end

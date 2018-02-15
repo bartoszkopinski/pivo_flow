@@ -61,13 +61,16 @@ module PivoFlow
       end
 
       HighLine.new.choose do |menu|
-        menu.header = "\n--- STORIES FROM PIVOTAL TRACKER ---\nWhich one would you like to #{activity}?   "
-        menu.prompt = "story no.? "
+        menu.header = "\n--- STORIES FROM PIVOTAL TRACKER ---\nChoose a story to #{activity}"
+        menu.prompt = "story no. "
         menu.select_by = :index
         stories.each do |story|
-          menu.choice(story_string(story).fix_encoding) { |answer| show_story(answer.match(/\[#(?<id>\d+)\]/)[:id])}
+          # menu.choice(story_string(story).fix_encoding) do |answer|
+          menu.choice(story_string(story)) do |answer|
+            show_story(answer.match(/\[#(?<id>\d+)\]/)[:id])
+          end
         end
-        menu.choice("Show all") { show_stories(100) }
+        menu.choice("Show more") { show_stories(stories.count + 10) }
       end
     end
 
@@ -79,7 +82,7 @@ module PivoFlow
       story = find_story(story_id)
       show_info story
       ask_for = story.current_state == "finished" ? "deliver" : "start"
-      proceed = ask_question "Do you want to #{ask_for} this story?"
+      proceed = ask_question "Do you want to #{ask_for} this story? (y/n)"
       accepted_answers = %w[yes y sure ofc jup yep yup ja tak]
       if accepted_answers.include?(proceed.downcase)
         story.current_state == "finished" ? deliver_story(story_id) : pick_up_story(story_id)
@@ -95,20 +98,26 @@ module PivoFlow
         return 1
       end
       puts story_string(story, true)
-      puts "\n[TASKS]"
-      story.tasks.all.count.zero? ? puts("        no tasks") : print_tasks(story.tasks.all)
-      puts "\n[NOTES]"
-      story_notes(story).count.zero? ? puts("        no notes") : print_notes(story_notes(story))
+
+      if story.tasks.any?
+        puts "\n[TASKS]"
+        print_tasks(story.tasks)
+      end
+
+      if story_notes(story).any?
+        puts "\n[COMMENTS]"
+        print_notes(story_notes(story))
+      end
     end
 
     def find_story story_id
-      story = project_stories.find { |p| p.id == story_id.to_i }
-      story.nil? ? project.story(story_id) : story
+      if @options[:stories].present?
+        @options[:stories].find { |p| s.id == story_id.to_i }
+      end || project.story(story_id)
     end
 
     def story_notes story, exclude_commits=true
-      return story.notes.all unless exclude_commits
-      story.notes.all.select { |n| n.text !~ /Commit by/ }
+      story.comments.select { |n| n.text !~ /Commit by/ }
     end
 
     def story_string story, long=false
@@ -116,23 +125,32 @@ module PivoFlow
         story_id: story.id,
         requested_by: story.requested_by,
         name: truncate(story.name),
-        story_type: story_type_icon(story),
+        full_name: story.name,
+        story_type_sign: story_type_icon(story),
+        story_type: story.story_type,
         estimate: estimate_points(story),
         owner: story_owner(story),
         description: story.description,
         labels: story_labels(story).colorize(:blue),
-        started: story_state_sign(story)
+        state_sign: story_state_sign(story),
+        state: story.current_state,
+        url: story.url.colorize(:light_blue),
       }
+
       if long
-        "STORY %{started} %{story_type} [#%{story_id}]
-        Name:         %{name}
-        Labels:       %{labels}
-        Owned by:     %{owner}
-        Requested by: %{requested_by}
-        Description:  %{description}
-        Estimate:     %{estimate}" % vars
+        <<~EOS % vars
+          [#%{story_id}] %{full_name}
+          URL:          %{url}
+          State:        %{state}
+          Labels:       %{labels}
+          Type:         %{story_type} (%{estimate})
+          Requester:    %{requested_by}
+          Owner:        %{owner}
+          Description:
+            %{description}
+        EOS
       else
-        "[#%{story_id}] (%{started}) %{story_type} [%{estimate} pts.] %{owner} %{name} %{labels}".colorize(story_color(story)) % vars
+        "%{story_type_sign} [#%{story_id}] (%{state_sign}) [%{estimate} pts.] %{owner} %{name} %{labels}".colorize(story_color(story)) % vars
       end
     end
 
@@ -167,7 +185,12 @@ module PivoFlow
     end
 
     def note_string note
-      "\t[#{note.noted_at.to_time}] (#{note.author}) #{note.text}"
+      if note.person.present?
+        "\t[#{note.created_at.to_time}] (#{note.person.name}) #{note.text}"
+      else
+        "\t[#{note.created_at.to_time}] #{note.text}"
+      end
+
     end
 
     def task_string task
@@ -176,9 +199,14 @@ module PivoFlow
     end
 
     def story_type_icon story
-      type = story.story_type
-      space_count = 7 - type.length
-      type + " " * space_count
+      case story.story_type
+      when "feature"
+        "⭐ "
+      when "bug"
+        "🐞 "
+      when "chore"
+        "⚙️ "
+      end
     end
 
     def truncate string
@@ -186,40 +214,60 @@ module PivoFlow
     end
 
     def story_owner story
-      story.owned_by.nil? ? "(--)" : "(#{initials(story.owned_by)})"
+      if story.owners.any?
+        "(#{story.owners.map{ |o| o.initials }.join(", ")})"
+      else
+        "(--)"
+      end
     end
 
     def story_labels story
-      story.labels.nil? ? "" : story.labels.split(",").map{ |l| "##{l}" }.join(", ")
+      story.labels.map{ |l| "##{l.name}" }.join(", ")
     end
 
     def story_state_sign story
-      return "*" if story.current_state == "unstarted"
-      story.current_state[0].capitalize
-    end
-
-    def initials name
-      name.split.map{ |n| n[0] }.join
+      case story.current_state
+      when "accepted"
+        "👍 "
+      when "rejected"
+        "👎 "
+      when "delivered"
+        "🚀 "
+      when "finished"
+        "🏁 "
+      when "started"
+        "⏳ "
+      when "planned"
+        "📅 "
+      when "unstarted"
+        "📅 "
+      when "unscheduled"
+        "📅 "
+      end
     end
 
     def estimate_points story
       unless story.estimate.nil?
-        story.estimate < 0 ? "?" : story.estimate
+        story.estimate < 0 ? "?" : story.estimate.to_i
       else
         "-"
       end
     end
 
     def pick_up_story story_id
-      save_story_id_to_file(story_id) if start_story(story_id)
+      if start_story(story_id)
+        save_story_id_to_file(story_id)
+      end
     end
 
     def update_story story_id, state
       story = find_story(story_id)
+
       if story.nil?
         puts "Story not found, sorry."
         return
       end
+
       state = :accepted if story.story_type == "chore" && state == :finished
       story.owner_ids |= [me.id]
       story.current_state = state
@@ -261,9 +309,12 @@ module PivoFlow
       update_story(story_id, :delivered)
     end
 
-    def show_stories count=9
-      stories = user_stories + other_users_stories
-      list_stories_to_output stories.first(count)
+    def show_stories count = 15
+      stories = fetch_stories(count,
+        "label:backend (state:started OR state:rejected OR state:planned OR state:unstarted OR state:unscheduled)"
+      )
+      stories.sort_by!{ |s| users_story?(s) ? -1 : 1 }
+      list_stories_to_output(stories.first(count))
     end
 
     def fetch_stories(count = 100, filter = nil)

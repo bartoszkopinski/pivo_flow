@@ -137,7 +137,5 @@ module PivoFlow
         q.first_answer = first_answer
       end
     end
-
   end
-
 end
