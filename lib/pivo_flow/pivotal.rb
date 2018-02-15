@@ -2,11 +2,9 @@
 module PivoFlow
   class Pivotal < Base
     include PivoFlow::State
+    include PivoFlow::Git
 
     def run
-      logger = Logger.new(STDOUT)
-      logger.level = Logger::INFO
-
       @client = TrackerApi::Client.new(
         token: @options["api-token"],
         logger: logger,
@@ -14,8 +12,15 @@ module PivoFlow
       )
     end
 
+    def logger
+      # @options["logger"] ||= Logger.new(STDOUT).tap{ |l| l.level = Logger::ERROR }
+      @options["logger"] ||= Logger.new(STDOUT).tap{ |l| l.level = Logger::INFO }
+    end
+
     def project
-      @options[:project] ||= @client.project(@options["project-id"])
+      @options[:project] ||= PivoFlow::Project.new(
+        @client.project(@options["project-id"])
+      )
     rescue Exception => e
       message = "Pivotal Tracker: #{e.message}\n" +
       "[TIPS] It means that your configuration is wrong. You can reset your settings by running:\n\tpf reconfig"
@@ -31,7 +36,7 @@ module PivoFlow
     end
 
     def project_stories
-      @options[:stories] ||= fetch_stories
+      project.fetch_stories
     end
 
     def other_users_stories
@@ -43,7 +48,7 @@ module PivoFlow
     end
 
     def finished_stories
-      fetch_stories(10, "owner:#{me.initials} state:finished")
+      project.fetch_stories(10, "owner:#{me.initials} state:finished")
     end
 
     def current_story force = false
@@ -66,7 +71,7 @@ module PivoFlow
         menu.select_by = :index
         stories.each do |story|
           # menu.choice(story_string(story).fix_encoding) do |answer|
-          menu.choice(story_string(story)) do |answer|
+          menu.choice(story.to_s) do |answer|
             show_story(answer.match(/\[#(?<id>\d+)\]/)[:id])
           end
         end
@@ -80,7 +85,7 @@ module PivoFlow
 
     def show_story story_id
       story = find_story(story_id)
-      show_info story
+      story.show_info
       ask_for = story.current_state == "finished" ? "deliver" : "start"
       proceed = ask_question "Do you want to #{ask_for} this story? (y/n)"
       accepted_answers = %w[yes y sure ofc jup yep yup ja tak]
@@ -91,167 +96,12 @@ module PivoFlow
       end
     end
 
-    def show_info story=nil
-      story = story || current_story
-      if story.nil?
-        puts "No story, no worry..."
-        return 1
-      end
-      puts story_string(story, true)
-
-      if story.tasks.any?
-        puts "\n[TASKS]"
-        print_tasks(story.tasks)
-      end
-
-      if story_notes(story).any?
-        puts "\n[COMMENTS]"
-        print_notes(story_notes(story))
-      end
-    end
-
     def find_story story_id
-      if @options[:stories].present?
-        @options[:stories].find { |p| s.id == story_id.to_i }
-      end || project.story(story_id)
-    end
-
-    def story_notes story, exclude_commits=true
-      story.comments.select { |n| n.text !~ /Commit by/ }
-    end
-
-    def story_string story, long=false
-      vars = {
-        story_id: story.id,
-        requested_by: story.requested_by,
-        name: truncate(story.name),
-        full_name: story.name,
-        story_type_sign: story_type_icon(story),
-        story_type: story.story_type,
-        estimate: estimate_points(story),
-        owner: story_owner(story),
-        description: story.description,
-        labels: story_labels(story).colorize(:blue),
-        state_sign: story_state_sign(story),
-        state: story.current_state,
-        url: story.url.colorize(:light_blue),
-      }
-
-      if long
-        <<~EOS % vars
-          [#%{story_id}] %{full_name}
-          URL:          %{url}
-          State:        %{state}
-          Labels:       %{labels}
-          Type:         %{story_type} (%{estimate})
-          Requester:    %{requested_by}
-          Owner:        %{owner}
-          Description:
-            %{description}
-        EOS
-      else
-        "%{story_type_sign} [#%{story_id}] (%{state_sign}) [%{estimate} pts.] %{owner} %{name} %{labels}".colorize(story_color(story)) % vars
-      end
+      project.story(story_id)
     end
 
     def users_story?(story)
       story.owner_ids.include?(me.id)
-    end
-
-    def story_color story
-      if users_story?(story)
-        case story.story_type
-          when "feature" then :green
-          when "bug" then :red
-          when "chore" then :yellow
-          else :white
-        end
-      else
-        case story.story_type
-          when "feature" then :light_green
-          when "bug" then :light_red
-          when "chore" then :ligh_yellow
-          else :light_white
-        end
-      end
-    end
-
-    def print_tasks tasks
-      tasks.each { |task| puts task_string(task) }
-    end
-
-    def print_notes notes
-      notes.each { |note| puts note_string(note) }
-    end
-
-    def note_string note
-      if note.person.present?
-        "\t[#{note.created_at.to_time}] (#{note.person.name}) #{note.text}"
-      else
-        "\t[#{note.created_at.to_time}] #{note.text}"
-      end
-
-    end
-
-    def task_string task
-      complete = task.complete ? "x" : " "
-      "\t[#{complete}] #{task.description}"
-    end
-
-    def story_type_icon story
-      case story.story_type
-      when "feature"
-        "⭐ "
-      when "bug"
-        "🐞 "
-      when "chore"
-        "⚙️ "
-      end
-    end
-
-    def truncate string
-      string.length > 80 ? "#{string[0..80]}..." : string
-    end
-
-    def story_owner story
-      if story.owners.any?
-        "(#{story.owners.map{ |o| o.initials }.join(", ")})"
-      else
-        "(--)"
-      end
-    end
-
-    def story_labels story
-      story.labels.map{ |l| "##{l.name}" }.join(", ")
-    end
-
-    def story_state_sign story
-      case story.current_state
-      when "accepted"
-        "👍 "
-      when "rejected"
-        "👎 "
-      when "delivered"
-        "🚀 "
-      when "finished"
-        "🏁 "
-      when "started"
-        "⏳ "
-      when "planned"
-        "📅 "
-      when "unstarted"
-        "📅 "
-      when "unscheduled"
-        "📅 "
-      end
-    end
-
-    def estimate_points story
-      unless story.estimate.nil?
-        story.estimate < 0 ? "?" : story.estimate.to_i
-      else
-        "-"
-      end
     end
 
     def pick_up_story story_id
@@ -260,75 +110,43 @@ module PivoFlow
       end
     end
 
-    def update_story story_id, state
+    def start_story story_id
       story = find_story(story_id)
-
-      if story.nil?
-        puts "Story not found, sorry."
-        return
-      end
-
-      state = :accepted if story.story_type == "chore" && state == :finished
-      story.owner_ids |= [me.id]
-      story.current_state = state
-
-      if story.save
-        puts "Story updated in Pivotal Tracker"
-        true
-      else
-        error_message = "ERROR"
-        error_message += ": #{story.errors.first}"
-        puts error_message
-      end
+      story.update(:started)
+      create_branch(story_id)
     end
 
-    MAX_BRANCH_NAME_LENGTH = 50
-
-    def create_branch story_id
-      story = find_story(story_id)
+    def create_branch story_id = nil
+      story = find_story(story_id || current_story_id)
 
       if story.nil?
         puts "Sorry, this story could not be found (#{story_id})"
         return
       end
 
-      branch_name = "#{story.story_type}/pt-##{story.id}"
-      git_create_branch(branch_name)
+      git_switch_branch(story.branch_name)
       save_story_id_to_file(story_id)
     end
 
-    def start_story story_id
-      update_story(story_id, :started)
-    end
-
     def finish_story story_id
-      remove_story_id_file if story_id.nil? or update_story(story_id, :finished)
+      if story_id.present?
+        story = find_story(story_id)
+        story.update(:finished)
+      end
+      remove_story_id_file
     end
 
     def deliver_story story_id
-      update_story(story_id, :delivered)
+      story = find_story(story_id)
+      story.update(:delivered)
     end
 
-    def show_stories count = 15
-      stories = fetch_stories(count,
+    def show_stories count = 9
+      stories = project.fetch_stories(count,
         "label:backend (state:started OR state:rejected OR state:planned OR state:unstarted OR state:unscheduled)"
       )
       stories.sort_by!{ |s| users_story?(s) ? -1 : 1 }
       list_stories_to_output(stories.first(count))
-    end
-
-    def fetch_stories(count = 100, filter = nil)
-      conditions = { limit: count }
-
-      if filter
-        conditions[:filter] = filter
-      end
-
-      project.stories(conditions)
-    end
-
-    def git_create_branch(name)
-      system("git checkout #{name} 2>/dev/null || git checkout -b #{name}")
     end
   end
 end

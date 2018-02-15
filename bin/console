@@ -7,7 +7,10 @@ $LOAD_PATH.unshift File.join(File.dirname(__FILE__), '..', 'lib')
 
 require "pivo_flow"
 
-@pf = PivoFlow::Pivotal.new
+logger = Logger.new(STDOUT)
+logger.level = Logger::INFO
+
+@pf = PivoFlow::Pivotal.new(logger: logger)
 @pf.run
 
 IRB.start

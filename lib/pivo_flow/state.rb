@@ -1,10 +1,7 @@
 module PivoFlow
   module State
     extend self
-
-    def current_branch_name
-      Grit::Repo.new(Dir.pwd).head.name
-    end
+    include PivoFlow::Git
 
     def story_id_tmp_path
       File.join(Dir.pwd, "tmp", ".pivo_flow")
