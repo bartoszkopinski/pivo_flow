@@ -90,19 +90,23 @@ module PivoFlow
     end
 
     def current
-      puts current_story_id || no_story_found_message
+      pivotal_object.current_story.show_info
     end
 
     def reconfig
       PivoFlow::Base.new.reconfig
     end
 
-    def info
-      pivotal_object.show_info
-    end
-
     def version
       puts PivoFlow::VERSION
+    end
+
+    def commit message = nil
+      pivotal_object.commit(message)
+    end
+
+    def pr title = nil
+      pivotal_object.pull_request(title)
     end
 
     # additional methods
@@ -131,11 +135,12 @@ module PivoFlow
         opts.separator  "Commands"
         opts.separator  "     branch            create git branch locally based on current set ticket using 'info' command"
         opts.separator  "     clear             clear STORY_ID from temp file"
+        opts.separator  "     commit [MESSAGE]  commits current changes"
         opts.separator  "     current           show STORY_ID from temp file"
         opts.separator  "     deliver           show finished stories and mark selected as delivered in Pivotal Tracker"
         opts.separator  "     help              show this message"
+        opts.separator  "     pr                open a pull request"
         opts.separator  "     finish [STORY_ID] finish story on Pivotal"
-        opts.separator  "     info              show info about current story"
         opts.separator  "     reconfig          clear API_TOKEN and PROJECT_ID from git config and setup new values"
         opts.separator  "     start <STORY_ID>  start a story of given ID (update in Pivotal)"
         opts.separator  "     set <STORY_ID>    set a story of given ID locally (do not update Pivotal)"
@@ -167,11 +172,11 @@ module PivoFlow
       opt_parser.parse!(args)
 
       case args[0]
-      when "start", "finish", "set"
+      when "start", "finish", "set", "commit"
         self.send(args[0].to_sym, args[1])
       when "help"
         puts opt_parser
-      when "clear", "current", "deliver", "info", "reconfig", "stories", "branch"
+      when "clear", "current", "deliver", "reconfig", "stories", "branch", "pr"
         self.send(args[0].to_sym)
       when nil
         stories

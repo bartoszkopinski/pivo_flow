@@ -34,7 +34,7 @@ module PivoFlow
       if story.story_type == "chore" && state == :finished
         state = :accepted
       end
-      story.owner_ids |= [me.id]
+      story.owner_ids |= [project.me.id]
       story.current_state = state
 
       if story.save
@@ -48,7 +48,7 @@ module PivoFlow
     end
 
     def branch_name
-      "#{story_type}/pt-##{id}"
+      "#{story.story_type}/pt-##{story.id}"
     end
 
     def owner_ids
@@ -57,6 +57,14 @@ module PivoFlow
 
     def current_state
       story.current_state
+    end
+
+    def name
+      story.name
+    end
+
+    def own?
+      story.owner_ids.include?(project.me.id)
     end
 
     def to_s long = false
@@ -101,21 +109,21 @@ module PivoFlow
     end
 
     def story_color
-      # if users_story?(story)
-      #   case story.story_type
-      #     when "feature" then :green
-      #     when "bug" then :red
-      #     when "chore" then :yellow
-      #     else :white
-      #   end
-      # else
+      if own?
+        case story.story_type
+          when "feature" then :green
+          when "bug" then :red
+          when "chore" then :yellow
+          else :white
+        end
+      else
         case story.story_type
           when "feature" then :light_green
           when "bug" then :light_red
           when "chore" then :ligh_yellow
           else :light_white
         end
-      # end
+      end
     end
 
     def comment_string comment

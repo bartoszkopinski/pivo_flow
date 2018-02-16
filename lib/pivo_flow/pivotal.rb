@@ -31,32 +31,12 @@ module PivoFlow
       @me ||= @client.me
     end
 
-    def user_stories
-      project_stories.select{ |story| users_story?(story) }
-    end
-
     def project_stories
       project.fetch_stories
     end
 
-    def other_users_stories
-      project_stories.select{ |story| !users_story?(story) }
-    end
-
-    def unasigned_stories
-      project_stories.select{ |story| story.owner_ids.empty? }
-    end
-
-    def finished_stories
-      project.fetch_stories(10, "owner:#{me.initials} state:finished")
-    end
-
-    def current_story force = false
-      if (@options[:current_story] && !force)
-        @options[:current_story]
-      else
-        @options[:current_story] = user_stories.count.zero? ? nil : user_stories.first
-      end
+    def current_story
+      find_story(current_story_id)
     end
 
     def list_stories_to_output stories, activity="start"
@@ -80,7 +60,7 @@ module PivoFlow
     end
 
     def deliver
-      list_stories_to_output finished_stories, "deliver"
+      list_stories_to_output(project.finished_stories, "deliver")
     end
 
     def show_story story_id
@@ -98,10 +78,6 @@ module PivoFlow
 
     def find_story story_id
       project.story(story_id)
-    end
-
-    def users_story?(story)
-      story.owner_ids.include?(me.id)
     end
 
     def pick_up_story story_id
@@ -142,11 +118,25 @@ module PivoFlow
     end
 
     def show_stories count = 9
-      stories = project.fetch_stories(count,
-        "label:backend (state:started OR state:rejected OR state:planned OR state:unstarted OR state:unscheduled)"
-      )
+      stories = project.available_stories(count)
       stories.sort_by!{ |s| users_story?(s) ? -1 : 1 }
-      list_stories_to_output(stories.first(count))
+      list_stories_to_output(stories)
+    end
+
+    def commit title
+      if title.nil? || title.to_s.empty?
+        title = current_story.name
+        e d
+      commit_message = "[##{current_story_id}] #{title}"
+      git_commit(commit_message)
+    end
+
+    def pull_request title
+      if title.nil? || title.to_s.empty?
+        title = current_story.name
+      end
+      title = "[##{current_story_id}] #{title}"
+      hub_pull_request(title)
     end
   end
 end

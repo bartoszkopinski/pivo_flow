@@ -9,7 +9,20 @@ module PivoFlow
     end
 
     def git_switch_branch(name)
-      system("git checkout #{name} 2>/dev/null || git checkout -b #{name}")
+      sys("git checkout #{name} 2>/dev/null || git checkout -b #{name}")
+    end
+
+    def git_commit title
+      sys("git commit -m \"#{title}\" && git push")
+    end
+
+    def hub_pull_request message
+      # if system("command -v hub")
+      sys("hub pull-request -m \"#{message}\" -b #{previous_branch} -h")
+    end
+
+    def previous_branch
+      `git describe --all $(git rev-parse @{-1})`.split("/")[-1].strip
     end
 
     # Check if git hook is already installed
@@ -44,6 +57,13 @@ module PivoFlow
       end
 
       puts "Success!\n"
+    end
+
+    private
+
+    def sys command
+      @options["logger"].debug(command)
+      system(command)
     end
   end
 end
